@@ -1,0 +1,6 @@
+# .gitignore file
+
+*.tmp
+*.psd
+garden.b*
+WIP/
