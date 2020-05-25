@@ -1,4 +1,4 @@
-#define sketchName "garden.ino, V1.0"
+#define sketchName "garden.ino, V1.1"
 
 /*
    Forked from GardenProject
@@ -25,9 +25,8 @@
 
 
 // ****************************** Globals  ******************************
-#define NODENAME "garden"                         //Must be unique on the net.
-const char *connectName =  NODENAME "garden";     //Must be unique on the network
-WiFiClient GardenClient;                          //The constructor MUST be unique on the network.
+#define NODENAME "garden2"                         //Must be unique on the net.
+const char *connectName =  NODENAME "garden2";     //Must be unique on the network
 
 //Probe Calibration
 int dry = 457;                  //Dry sensor
@@ -37,13 +36,16 @@ int wet = 811;                  //Wet sensor
 #define hostPrefix NODENAME     // For setupWiFi()
 char macBuffer[24];             // Holds the last three digits of the MAC, in hex.
 
+char jsonBuffer[150];           //Holds the JSON string from ArduinoJson.h
+
+
 const char *statusTopic = NODENAME "/status";             //Sends the temperature, moisture, IP and RSSI in one payload.
 const char *statusJsonTopic = NODENAME "/statusJson";
 const char *cmdTopic = NODENAME "/cmd";                   //Sends a command string: readTime, temp correction
 const int mqttPort = 1883;
 
 
-int sleepSeconds = 120;
+int sleepSeconds = 15;
 const int pubsubDelay = 20;           //Time between publishes
 long rssi;                            //Used in the WiFi tab
 float tCorrection = 0.0;              //Temperature correction.
@@ -60,7 +62,11 @@ static const char *mqttSubs[] = {
 
 
 
-PubSubClient client(GardenClient);
+// Declare an object of class WiFiClient, which allows to establish a connection to a specific IP and port
+// Declare an object of class PubSubClient, which receives as input of the constructor the previously defined WiFiClient.
+WiFiClient GardenClient2;                // The constructor MUST be unique on the network.
+PubSubClient client(GardenClient2);
+
 
 #define DEBUG true  //set to true for debug output, false for no debug ouput
 #define Serial if(DEBUG)Serial
@@ -97,15 +103,18 @@ void setup(void)
   mqttConnect();
   client.setCallback(callback);
 
+}
 
-  //Ensure we've sent & received everything before sleeping
-  //This adds 1-second to the wake time.
-  for (int i = 0; i < 5; i++)
-  {
-    client.loop();                 // Normally at the top of the loop.
-    delay(100);
-  }
 
+// ==================================== loop() ====================================
+void loop(void) {
+  client.loop();                      //Check for MQTT messages
+  ArduinoOTA.handle();                //check for OTA commands
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nUpload Ended");
+  });
+
+  Serial.println(F("\n----------"));    // Flag the top of the loop for debugging
 
   String rssiTemp;                                              //RSSI in String
   rssiTemp = String(rssi);                                      //convert the rssi to a String
@@ -119,7 +128,7 @@ void setup(void)
   fahrenheit = fahrenheit + tCorrection;
 
   int moistureVal = analogRead(0);                              //Read the moisture sensor
-  Serial.print(F("\n\nraw= "));
+  Serial.print(F("\nraw= "));
   Serial.println(moistureVal);
   int moistureValPct = map(moistureVal, wet, dry, 100, 0);
   Serial.print(F("mapped= "));
@@ -130,21 +139,6 @@ void setup(void)
   String temperatureString = String(fahrenheit).c_str();
   String moistureRawString = String(moistureVal).c_str();
   String moisturePctString = String(moistureValPct).c_str();
-  Serial.print(F("moistureRawString = "));
-  Serial.println(moistureRawString);
-  Serial.print(F("moisturePctString = "));
-  Serial.println(moisturePctString);
-  Serial.print(F("rssi_string = "));
-  Serial.println(rssi_string);
-  Serial.print(F("Temperature = "));
-  Serial.print(fahrenheit);
-  Serial.println(F(" Fahrenheit"));
-  Serial.println();
-  Serial.print(sleepSeconds);
-  Serial.println(F(" seconds"));
-  Serial.print(F("IP = "));
-  Serial.println(WiFi.localIP());
-
 
 
   // Send data to statusTopic
@@ -163,39 +157,33 @@ void setup(void)
   Serial.println(F("\""));                                                 // Cloing quote.
 
 
+  //The maximum MQTT message size, including header, is 128 bytes by default in PubSubClient.h,and
+  //20 bytes are consumed in the header, so 108 characters is the limit.
   StaticJsonDocument<240> doc;          //Allocate the JSON document
   // Add values in the document
-  doc["temperature"] = temperatureString;
-  doc["moisture"] = moisturePctString;
-  doc["moistureraw"] = moistureRawString;
+  doc["temp"] = temperatureString;
+  doc["wet"] = moisturePctString;
+  doc["raw"] = moistureRawString;
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = rssi_string;
   doc["sleep"] = String(sleepSeconds);
- 
+
   String statusJson;
   serializeJson(doc, statusJson);       //Prints a JSON String to the buffer
 
-  Serial.print(F("statusJson= "));      //Debug, make sure the JSON string is good.
+  Serial.print(F("statusJson= "));      //Debug, to make sure the JSON string is good.
   Serial.println(statusJson);
-  Serial.println();
+  Serial.print(F("statusJson.length= "));
+  Serial.println(statusJson.length());
 
-  client.publish(statusJsonTopic, (char*) statusJson.c_str());             // Publish the JSON string
+  int e = client.publish(statusJsonTopic, (char*) statusJson.c_str());     // Publish the JSON string
   delay(pubsubDelay);                                                      // Publish never completes without a delay
+  Serial.print(F("e= "));
+  Serial.println(e);
 
 
   client.publish(statusTopic, (char*) status.c_str());                     // Publish all data
   delay(pubsubDelay);                                                      // Publish never completes without a delay
 
-}
-
-
-// ==================================== loop() ====================================
-void loop(void) {
-  client.loop();                      //Check for MQTT messages
-  ArduinoOTA.handle();                //check for OTA commands
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nUpload Ended");
-  });
-
-
+  delay(sleepSeconds * 1000);       //Time between readings in ms
 }

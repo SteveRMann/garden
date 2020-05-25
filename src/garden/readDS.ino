@@ -10,7 +10,9 @@ float readDS() {
   if (!ds.search(addr)) {
     ds.reset_search();
     delay(250);
-    return (0);
+    if (!ds.search(addr)) {       // start over. Search for the next device. If no more devices are found, false is returned.
+      return (0);
+    }
   }
 
   Serial.print(F("Device: 0x"));
