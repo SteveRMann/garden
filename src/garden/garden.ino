@@ -1,4 +1,4 @@
-#define sketchName "garden.ino, V1.1"
+#define sketchName "garden.ino, V2.0"
 
 /*
    Forked from GardenProject
@@ -25,8 +25,8 @@
 
 
 // ****************************** Globals  ******************************
-#define NODENAME "garden2"                         //Must be unique on the net.
-const char *connectName =  NODENAME "garden2";     //Must be unique on the network
+#define NODENAME "garden"                         //Must be unique on the net.
+const char *connectName =  NODENAME "garden";     //Must be unique on the network
 
 //Probe Calibration
 int dry = 457;                  //Dry sensor
@@ -36,13 +36,18 @@ int wet = 811;                  //Wet sensor
 #define hostPrefix NODENAME     // For setupWiFi()
 char macBuffer[24];             // Holds the last three digits of the MAC, in hex.
 
-char jsonBuffer[150];           //Holds the JSON string from ArduinoJson.h
-
 
 const char *statusTopic = NODENAME "/status";             //Sends the temperature, moisture, IP and RSSI in one payload.
 const char *statusJsonTopic = NODENAME "/statusJson";
 const char *cmdTopic = NODENAME "/cmd";                   //Sends a command string: readTime, temp correction
 const int mqttPort = 1883;
+
+const char *temperatureTopic = NODENAME "/temperature";
+const char *wetTopic = NODENAME "/wet";
+const char *rawTopic = NODENAME "/raw";
+const char *ipTopic = NODENAME "/ip";
+const char *rssiTopic = NODENAME "/rssi";
+const char *sleepTopic = NODENAME "/sleep";
 
 
 int sleepSeconds = 15;
@@ -64,8 +69,8 @@ static const char *mqttSubs[] = {
 
 // Declare an object of class WiFiClient, which allows to establish a connection to a specific IP and port
 // Declare an object of class PubSubClient, which receives as input of the constructor the previously defined WiFiClient.
-WiFiClient GardenClient2;                // The constructor MUST be unique on the network.
-PubSubClient client(GardenClient2);
+WiFiClient GardenClient;                // The constructor MUST be unique on the network.
+PubSubClient client(GardenClient);
 
 
 #define DEBUG true  //set to true for debug output, false for no debug ouput
@@ -114,6 +119,8 @@ void loop(void) {
     Serial.println("\nUpload Ended");
   });
 
+  mqttConnect();                        //Make sure we're still connected.
+  
   Serial.println(F("\n----------"));    // Flag the top of the loop for debugging
 
   String rssiTemp;                                              //RSSI in String
@@ -168,22 +175,49 @@ void loop(void) {
   doc["rssi"] = rssi_string;
   doc["sleep"] = String(sleepSeconds);
 
+
   String statusJson;
   serializeJson(doc, statusJson);       //Prints a JSON String to the buffer
 
-  Serial.print(F("statusJson= "));      //Debug, to make sure the JSON string is good.
-  Serial.println(statusJson);
-  Serial.print(F("statusJson.length= "));
-  Serial.println(statusJson.length());
+  /*
+    Serial.print(F("statusJson= "));      //Debug, to make sure the JSON string is good.
+    Serial.println(statusJson);
+    Serial.print(F("statusJson.length= "));
+    Serial.println(statusJson.length());
 
-  int e = client.publish(statusJsonTopic, (char*) statusJson.c_str());     // Publish the JSON string
-  delay(pubsubDelay);                                                      // Publish never completes without a delay
-  Serial.print(F("e= "));
-  Serial.println(e);
+    int e = client.publish(statusJsonTopic, (char*) statusJson.c_str());     // Publish the JSON string
+    delay(pubsubDelay);                                                      // Publish never completes without a delay
+    Serial.print(F("e= "));
+    Serial.println(e);
+  */
+
+  int e = client.publish(statusTopic, (char*) status.c_str());  // Publish all data
+  delay(pubsubDelay);                                           // Publish never completes without a delay
+  if (!e) {
+    Serial.print(F("Publish to topic: '"));
+    Serial.print(statusTopic);
+    Serial.println(F("' failed"));
+    ESP.restart();
+  }
 
 
-  client.publish(statusTopic, (char*) status.c_str());                     // Publish all data
-  delay(pubsubDelay);                                                      // Publish never completes without a delay
+
+  // Send individual topics because Home Assistant doesn't deal well with JSON strings.
+  client.publish(temperatureTopic, (char*) temperatureString.c_str());
+  delay(pubsubDelay);
+  client.publish(wetTopic, (char*) moisturePctString.c_str());
+  delay(pubsubDelay);
+  client.publish(rawTopic, (char*) moistureRawString.c_str());
+  delay(pubsubDelay);
+  client.publish(ipTopic, (char*) WiFi.localIP().toString().c_str());
+  delay(pubsubDelay);
+  client.publish(rssiTopic, rssi_string);
+  delay(pubsubDelay);
+  client.publish(sleepTopic, (char*) String(sleepSeconds).c_str());
+  delay(pubsubDelay);
+
+
+
 
   delay(sleepSeconds * 1000);       //Time between readings in ms
 }
